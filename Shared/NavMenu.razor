@@ -1,0 +1,12 @@
+﻿@using BlazorAdminTemplate.Data.Enums
+
+<MudNavMenu>
+    <MudNavLink Href="" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Home">Home</MudNavLink>
+    <MudNavLink Href="/counter" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Add">Counter</MudNavLink>
+    <MudNavLink Href="/fetchdata" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.List">Fetch data</MudNavLink>
+    <AuthorizeView Roles="@UserRoles.Admin.ToString()">
+        <MudNavGroup Title="Admin" Expanded="false" Icon="@Icons.Material.Filled.AdminPanelSettings">
+            <MudNavLink Href="/users" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.People">User Management</MudNavLink>
+        </MudNavGroup>
+    </AuthorizeView>
+</MudNavMenu>

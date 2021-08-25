@@ -1,0 +1,178 @@
+﻿@using BlazorAdminTemplate.Data
+@using BlazorAdminTemplate.Data.Enums
+@using System.Linq
+@using System.Text
+@using System.ComponentModel.DataAnnotations
+@inject ISnackbar Snackbar
+@inject UserManager<ApplicationUser> UserMgr
+@inject RoleManager<IdentityRole> RoleMgr
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">
+            <MudIcon Icon="@Icons.Material.Filled.Edit" Class="mr-3 mb-n1" />
+            @ModifyType
+        </MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudForm @ref="_form" @bind-IsValid="@_success" @bind-Errors="@_errors">
+            <MudItem xs="12">
+                <MudTextField @bind-Value="User.Id" Label="ID" ReadOnly="true" />
+            </MudItem>
+            <MudItem xs="12">
+                <MudTextField @bind-Value="User.Email" Label="E-Mail" Required="true" RequiredError="Email is required!"
+                              Validation="@(new EmailAddressAttribute() {ErrorMessage = "The email address is invalid"})" />
+            </MudItem>
+            <MudItem xs="12">
+                <MudTextField @bind-Value="User.PhoneNumber" Label="Phone Number" />
+            </MudItem>
+            <MudItem xs="12">
+                <MudSelect T="int" Label="Employee" Strict="true" OffsetY="true" @bind-Value="User.EmployeeId" Validation="@(new Func<int, string>(ValidateEmployeeId))">
+                    @foreach (var item in EmployeeIds)
+                    {
+                        <MudSelectItem T="int" Value="@item" />
+                    }
+                </MudSelect>
+            </MudItem>
+            @if (IsNewUser)
+            {
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="Password" Label="Password" InputType="InputType.Password" Validation="@(new Func<string, string>(ValidatePassword))" />
+                </MudItem>
+            }
+            <MudPaper Elevation="2" Class="pa-6 justify-center my-6">
+                <MudGrid>
+                    <MudItem xs="12"><MudText Typo="Typo.h6">Roles:</MudText></MudItem>
+                    @foreach (var userRolesModel in UserRolesModels)
+                    {
+                        <MudItem xs="6"><MudCheckBox @bind-Checked="userRolesModel.Selected" Label="@userRolesModel.RoleName" Color="Color.Primary"></MudCheckBox></MudItem>
+                    }
+                </MudGrid>
+            </MudPaper>
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Error" OnClick="Save">@ModifyType</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] MudDialogInstance MudDialog { get; set; }
+
+    [Parameter] public ApplicationUser User { get; set; } = new ApplicationUser();
+    [Parameter] public bool IsNewUser { get; set; } = false;
+
+    private string ModifyType { get; set; } = "Edit User";
+
+    private IList<string> Roles = new List<string>();
+    private List<UserRolesModel> UserRolesModels = new List<UserRolesModel>();
+
+    private string Password = String.Empty;
+
+    private List<int> EmployeeIds = new List<int> { 10, 20, 25, 28, 39 };
+
+    private MudForm _form;
+    private bool _success;
+    private string[] _errors = { };
+
+    // TODO: do not use the User object for bind-values. it modifies the object even if we cancel. EditUserModel ?
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (IsNewUser)
+            ModifyType = "Add User";
+
+        await LoadUserRolesModel();
+    }
+
+    private async Task LoadUserRolesModel()
+    {
+        foreach (var item in RoleMgr.Roles.ToList())
+        {
+            var userRolesModel = new UserRolesModel { RoleName = item.Name };
+            userRolesModel.Selected = await UserMgr.IsInRoleAsync(User, item.Name);
+
+            UserRolesModels.Add(userRolesModel);
+        }
+    }
+
+    private void Cancel()
+    {
+        MudDialog.Cancel();
+    }
+
+    private async Task Save()
+    {
+        _form.Validate();
+        if(!_success) return;
+
+        var result = IsNewUser ? await SaveNewUser() : await UpdateUser();
+
+        if (result.Succeeded)
+        {
+            Snackbar.Add("Saved changes!", Severity.Success);
+            MudDialog.Close(DialogResult.Ok(User.Id));
+        }
+        else
+        {
+            StringBuilder errors = new StringBuilder();
+            foreach (var error in result.Errors)
+            {
+                errors.AppendLine(error.Description);
+            }
+            Snackbar.Add("Error saving changes!" + errors, Severity.Error);
+        }
+    }
+
+    private async Task<IdentityResult> SaveNewUser()
+    {
+        User.UserName = User.Email;
+        User.EmailConfirmed = true; // skip email confirmation
+
+        var result = await UserMgr.CreateAsync(User, Password);
+
+        if (!result.Succeeded) return result;
+
+        // add new roles
+        var resultAddRoles = await UserMgr.AddToRolesAsync(User, UserRolesModels.Where(x => x.Selected).Select(y => y.RoleName));
+        return resultAddRoles;
+    }
+
+    private async Task<IdentityResult> UpdateUser()
+    {
+        // get current roles of user
+        var roles = await UserMgr.GetRolesAsync(User);
+        // remove current roles
+        var resultRemoveRoles = await UserMgr.RemoveFromRolesAsync(User, roles);
+        if (!resultRemoveRoles.Succeeded) return resultRemoveRoles;
+
+        // add new roles
+        var resultAddRoles = await UserMgr.AddToRolesAsync(User, UserRolesModels.Where(x => x.Selected).Select(y => y.RoleName));
+        if (!resultAddRoles.Succeeded) return resultAddRoles;
+
+        // update user fields
+        var resultUpdateUser = await UserMgr.UpdateAsync(User);
+        return resultUpdateUser;
+    }
+
+    private string ValidateEmployeeId(int id)
+    {
+        // admin doesn't need to have an employee id set
+        if (UserRolesModels.Where(x => x.RoleName.Equals(UserRoles.Admin.ToString()) && x.Selected == true).ToList().Count > 0) return null;
+
+        if (id <= 0) return "No Employee Id selected!";
+
+        return null;
+    }
+
+    private string ValidatePassword(string password)
+    {
+        if(!IsNewUser) return null;
+
+        var result = UserMgr.PasswordValidators.FirstOrDefault()?.ValidateAsync(UserMgr, User, password).Result;
+        if (!result.Succeeded) return result.Errors.FirstOrDefault().Description;
+
+        return null;
+    }
+}

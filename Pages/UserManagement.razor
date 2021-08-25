@@ -1,0 +1,116 @@
+﻿@page "/users"
+@using BlazorAdminTemplate.Data
+@using Microsoft.EntityFrameworkCore
+@using BlazorAdminTemplate.Pages.Identity
+@using BlazorAdminTemplate.Data.Enums
+@using System.Text
+@inject UserManager<ApplicationUser> UserMgr
+@inject RoleManager<IdentityRole> RoleMgr
+@inject ISnackbar Snackbar
+@attribute [Authorize(Roles = nameof(UserRoles.Admin))]
+
+<MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="mt-16">
+    <MudText Typo="Typo.h3" GutterBottom="true">User Management</MudText>
+    <MudTable Items="@Users" Hover="true" Breakpoint="Breakpoint.Sm">
+        <HeaderContent>
+            <MudTh>User</MudTh>
+            <MudTh>Id</MudTh>
+            <MudTh>Password Hash</MudTh>
+            <MudTh>E-Mail confirmed?</MudTh>
+            <MudTh>Action</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="User">@context.Email</MudTd>
+            <MudTd Style="word-break:break-all" DataLabel="Id" HideSmall="true">@context.Id</MudTd>
+            <MudTd Style="word-break:break-all " DataLabel="Password Hash" HideSmall="true">@context.PasswordHash</MudTd>
+            <MudTd DataLabel="E-Mail confirmed?">@context.EmailConfirmed</MudTd>
+            <MudTd>
+                <MudButtonGroup Color="Color.Primary" Variant="Variant.Filled">
+                    <MudButton OnClick="@((e) => EditUser(context))">Edit</MudButton>
+                    <MudButton OnClick="@((e) => DeleteUser(context))">Delete</MudButton>
+                    <MudButton OnClick="@((e) => ResetPassword(context))">Reset Pw</MudButton>
+                </MudButtonGroup>
+            </MudTd>
+        </RowTemplate>
+    </MudTable>
+    <MudButton Color="Color.Primary" Variant="Variant.Filled" StartIcon="@Icons.Material.Filled.PersonAdd" OnClick="@AddUser">New User</MudButton>
+</MudContainer>
+
+@code
+{
+    [Inject] private IDialogService DialogService { get; set; }
+    private List<ApplicationUser> Users;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshUsers();
+        ConfigureSnackBar();
+    }
+
+    async Task ResetPassword(ApplicationUser user)
+    {
+        var parameters = new DialogParameters { ["User"] = user };
+
+        var dialog = DialogService.Show<ResetPasswordDialog>("Reset Password", parameters);
+        var result = await dialog.Result;
+    }
+
+    async Task EditUser(ApplicationUser user)
+    {
+        var parameters = new DialogParameters { ["User"] = user };
+        var options = new DialogOptions() { MaxWidth = MaxWidth.Small, FullWidth = true };
+
+        var dialog = DialogService.Show<ModifyUserDialog>("Edit User", parameters, options);
+        var result = await dialog.Result;
+        await RefreshUsers();
+    }
+
+    async Task DeleteUser(ApplicationUser user)
+    {
+        bool? result = await DialogService.ShowMessageBox(
+            "Warning",
+            $"Do you really want to delete {user.UserName}?",
+            yesText: "Delete", cancelText: "Cancel");
+
+        // action cancelled by user
+        if (result == null) return;
+
+        // don't delete if this is the only user remaining
+        if (Users.Count == 1)
+        {
+            Snackbar.Add("Last user can not be deleted!", Severity.Error);
+            return;
+        }
+
+        // delete user
+        var delResult = await UserMgr.DeleteAsync(user);
+        if (delResult == IdentityResult.Success)
+            Snackbar.Add("User deleted!", Severity.Success);
+        else
+            Snackbar.Add(ErrorDisplayHelper.GetErrorsFromIdentityResult(delResult), Severity.Error);
+
+
+        await RefreshUsers();
+    }
+
+    async Task AddUser()
+    {
+        var parameters = new DialogParameters { ["User"] = new ApplicationUser(), ["IsNewUser"] = true };
+        var options = new DialogOptions() { MaxWidth = MaxWidth.Small, FullWidth = true };
+
+        var dialog = DialogService.Show<ModifyUserDialog>("Add User", parameters, options);
+        var result = await dialog.Result;
+        await RefreshUsers();
+    }
+
+    void ConfigureSnackBar()
+    {
+        Snackbar.Configuration.PositionClass = Defaults.Classes.Position.BottomLeft;
+        Snackbar.Configuration.VisibleStateDuration = 5000;
+    }
+
+    private async Task RefreshUsers()
+    {
+        Users = await UserMgr.Users.OrderBy(x => x.Email).ToListAsync();
+    }
+}

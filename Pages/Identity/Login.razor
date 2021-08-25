@@ -1,0 +1,110 @@
+﻿@page "/login"
+@layout LoginLayout
+@attribute [AllowAnonymous]
+@using BlazorAdminTemplate.Data
+@using System.ComponentModel.DataAnnotations
+@using System.Linq
+@using BlazorAdminTemplate.Pages.Shared
+@inject SignInManager<ApplicationUser> SignInMgr
+@inject UserManager<ApplicationUser> UserMgr
+@inject NavigationManager NavMgr
+
+<AuthorizeView>
+    <Authorized>
+        <RedirectToDashboard />
+    </Authorized>
+    <NotAuthorized>
+        <MudText Typo="Typo.h4" GutterBottom="true">Sign In</MudText>
+
+        <MudForm @ref="form" @bind-IsValid="@success" @bind-Errors="@errors">
+            <MudTextField T="string" @bind-Value="@Model.Email" Label="E-Mail" Variant="Variant.Outlined" Required="true" RequiredError="E-Mail is required!"
+                          Validation="@(new EmailAddressAttribute() {ErrorMessage = "The email address is invalid"})" Class="my-6"></MudTextField>
+
+            <MudTextField @bind-Value="@Model.Password" Label="Password" Variant="Variant.Outlined" InputType="@PasswordInput" Required="true" RequiredError="Password is required!"
+                          Adornment="Adornment.End" AdornmentIcon="@PasswordInputIcon" OnAdornmentClick="TogglePasswordVisibility" />
+        </MudForm>
+
+        <div Class="d-flex justify-space-between align-center">
+            <MudCheckBox T="bool" Label="Remember me?" @bind-Value="@Model.RememberMe" Color="Color.Primary" Class="ml-n1 my-3"></MudCheckBox>
+            <MudLink Href="/pages/authentication/forgot-password">Forgot password?</MudLink>
+        </div>
+
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="DoLogin" Size="Size.Large" FullWidth="true">Sign In</MudButton>
+
+        @if (!string.IsNullOrEmpty(Model.Error))
+        {
+            <MudAlert Severity="Severity.Error" Class="mt-8 mud-width-full" Style="max-width:500px;" Elevation="25">@Model.Error</MudAlert>
+        }
+    </NotAuthorized>
+</AuthorizeView>
+
+@code {
+    bool PasswordVisibility;
+    InputType PasswordInput = InputType.Password;
+    string PasswordInputIcon = Icons.Material.Filled.VisibilityOff;
+
+    bool success;
+    string[] errors = { };
+    MudForm form;
+
+    private LoginModel<ApplicationUser> Model { get; set; } = new LoginModel<ApplicationUser>();
+
+    private async Task DoLogin()
+    {
+        await Submit();
+    }
+
+    private async Task Submit()
+    {
+        form.Validate();
+
+        if (!success)
+        {
+            Model.Error = errors.FirstOrDefault();
+            return;
+        }
+
+        Model.Error = null;
+        var usr = await UserMgr.FindByEmailAsync(Model.Email);
+        if (usr == null)
+        {
+            Model.Error = "Login failed. Check your username and password.";
+            return;
+        }
+
+
+        if (await SignInMgr.CanSignInAsync(usr))
+        {
+            var result = await SignInMgr.CheckPasswordSignInAsync(usr, Model.Password, true);
+            if (result.Succeeded)
+            {
+                Guid key = BlazorCookieLoginMiddleware<ApplicationUser>.AnnounceLogin(Model);
+                NavMgr.NavigateTo($"/login?key={key}", true);
+            }
+            else
+            {
+                Model.Error = "Login failed. Check your username and password.";
+            }
+        }
+        else
+        {
+            Model.Error = "Your account is blocked";
+        }
+    }
+
+    void TogglePasswordVisibility()
+    {
+        @if (PasswordVisibility)
+        {
+            PasswordVisibility = false;
+            PasswordInputIcon = Icons.Material.Filled.VisibilityOff;
+            PasswordInput = InputType.Password;
+        }
+        else
+        {
+            PasswordVisibility = true;
+            PasswordInputIcon = Icons.Material.Filled.Visibility;
+            PasswordInput = InputType.Text;
+        }
+    }
+}
